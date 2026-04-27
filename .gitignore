@@ -6,6 +6,9 @@ __pycache__/
 .venv/
 .env
 
+# Configuración local del usuario (proyecto/centro de costo personales)
+config.local.toml
+
 # Playwright (capturas de debug y estado de sesión)
 skills/**/capturas/
 skills/registro-horas/state.json

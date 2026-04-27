@@ -24,13 +24,15 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _common import (
     DEFAULT_VIEWPORT,
     add_browser_args,
     capturas_dir,
+    load_config,
+    require_config_value,
+    sanitize_html_for_dump,
     snap,
     warn_if_world_readable,
 )
@@ -40,11 +42,6 @@ from playwright.sync_api import Page, sync_playwright
 BASE_URL = "https://erp.confiani.com"
 LOGIN_URL = f"{BASE_URL}/web/login"
 HELPDESK_URL = f"{BASE_URL}/helpdesk"
-
-# Valores visibles en los selects del form; dependen del UI actual de Confiani.
-PROCESO = "Proceso de Ingeniería Cloud"
-SERVICIO = "Gestión - GCP"
-CENTRO_COSTO_PREFIJO = "[0004008]"  # 004 - PROYECTO POSITIVA SGDEA 2025 - 3T
 
 CAPTURAS = capturas_dir(__file__)
 
@@ -94,11 +91,12 @@ def _select_by_text_contains(page: Page, select_id: str, texto: str, timeout_ms:
     locator.select_option(value=valor)
 
 
-def _extraer_numero_ticket(page: Page) -> Optional[str]:
+def _extraer_numero_ticket(page: Page) -> str | None:
+    """Devuelve el identificador legible del ticket (`TICKET/123`) o None."""
     m = re.search(r"/sh_tickets?/(\d+)", page.url)
     if m:
-        return m.group(0)
-    m = re.search(r"TICKET/\d+", page.content())
+        return f"TICKET/{m.group(1)}"
+    m = re.search(r"TICKET/(\d+)", page.content())
     return m.group(0) if m else None
 
 
@@ -107,7 +105,10 @@ def crear_ticket(
     password: str,
     asunto: str,
     descripcion: str,
-    adjuntos: Optional[list[Path]] = None,
+    proceso: str,
+    servicio: str,
+    centro_costo_prefijo: str,
+    adjuntos: list[Path] | None = None,
     headless: bool = False,
     dry_run: bool = False,
 ) -> dict:
@@ -134,15 +135,15 @@ def crear_ticket(
 
         print("[ticket] 3/6 asunto y proceso...")
         page.fill("#email_subject", asunto)
-        _select_by_text_contains(page, "team", PROCESO)
+        _select_by_text_contains(page, "team", proceso)
         snap(page, CAPTURAS, "03_asunto_proceso", enabled=dry_run)
 
         print("[ticket] 4/6 esperando servicios (AJAX)...")
-        _select_by_text_contains(page, "ticket_type", SERVICIO)
+        _select_by_text_contains(page, "ticket_type", servicio)
         snap(page, CAPTURAS, "04_servicio", enabled=dry_run)
 
         print("[ticket] 5/6 centro de costos y descripción...")
-        _select_by_text_contains(page, "account_analytic_id", CENTRO_COSTO_PREFIJO)
+        _select_by_text_contains(page, "account_analytic_id", centro_costo_prefijo)
 
         # El formulario muestra distintos textareas según el servicio; el activo
         # es siempre el único visible marcado como required.
@@ -160,7 +161,7 @@ def crear_ticket(
         except Exception as e:
             snap(page, CAPTURAS, "05_error_sin_textarea")
             (CAPTURAS / "05_error_sin_textarea.html").write_text(
-                page.content(), encoding="utf-8"
+                sanitize_html_for_dump(page.content()), encoding="utf-8"
             )
             raise RuntimeError(
                 "No apareció textarea visible con required=true tras seleccionar el servicio. "
@@ -223,7 +224,7 @@ def crear_ticket(
         return resultado
 
 
-def _buscar_env() -> Optional[Path]:
+def _buscar_env() -> Path | None:
     """Sube hasta 6 niveles buscando un .env. Retorna el primero encontrado."""
     actual = Path(__file__).resolve().parent
     for _ in range(6):
@@ -288,6 +289,8 @@ def _leer_env() -> tuple[str, str]:
 
 
 def main() -> None:
+    cfg = load_config("confiani")
+
     parser = argparse.ArgumentParser(description="Crea ticket en Confiani helpdesk")
     parser.add_argument("--asunto", required=True, help="Asunto del ticket (max 70 chars)")
     grupo = parser.add_mutually_exclusive_group(required=True)
@@ -295,8 +298,18 @@ def main() -> None:
     grupo.add_argument("--descripcion-archivo", help="Ruta a archivo con la descripción")
     parser.add_argument("--adjunto", action="append", default=[],
                         help="Ruta a adjunto (repetible)")
+    parser.add_argument("--proceso", default=cfg.get("proceso"),
+                        help="Texto del 'Proceso' (default: config.toml).")
+    parser.add_argument("--servicio", default=cfg.get("servicio"),
+                        help="Texto del 'Servicio' (default: config.toml).")
+    parser.add_argument("--centro-costo", default=cfg.get("centro_costo_prefijo"),
+                        help="Prefijo del centro de costo (ej. '[0004008]'). Default: config.toml.")
     add_browser_args(parser)
     args = parser.parse_args()
+
+    proceso        = require_config_value({"proceso": args.proceso}, "proceso", "confiani", "--proceso")
+    servicio       = require_config_value({"servicio": args.servicio}, "servicio", "confiani", "--servicio")
+    centro_costo   = require_config_value({"centro_costo_prefijo": args.centro_costo}, "centro_costo_prefijo", "confiani", "--centro-costo")
 
     if args.descripcion_archivo:
         ruta = Path(args.descripcion_archivo)
@@ -312,6 +325,9 @@ def main() -> None:
         password=pwd,
         asunto=args.asunto,
         descripcion=descripcion,
+        proceso=proceso,
+        servicio=servicio,
+        centro_costo_prefijo=centro_costo,
         adjuntos=[Path(p) for p in args.adjunto],
         headless=args.headless,
         dry_run=args.dry_run,

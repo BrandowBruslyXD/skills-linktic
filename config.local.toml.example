@@ -1,0 +1,16 @@
+# Copia este archivo a `config.local.toml` y ajusta los valores a tu asignación.
+# `config.local.toml` está en .gitignore: tus cambios NO se suben al repo.
+#
+# Solo necesitas escribir las claves que quieras sobrescribir; el resto cae en
+# `config.toml` (defaults del equipo).
+
+[ripor]
+proyecto    = "005 - PROYECTO POSITIVA SGDEA 2026 - 3T"
+# tarea       = "Tarea Personalizada"     # opcional
+# horas       = 9                          # opcional
+# transporte  = "🏍️ Moto particular"       # opcional
+
+[confiani]
+proceso              = "Proceso de Ingeniería Cloud"
+servicio             = "Gestión - GCP"
+centro_costo_prefijo = "[0004008]"

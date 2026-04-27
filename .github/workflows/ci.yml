@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    name: Sintaxis y compilación
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Bash syntax check
+        run: |
+          for f in install.sh setup.sh skills.sh; do
+            echo "→ bash -n $f"
+            bash -n "$f"
+          done
+
+      - name: Python compile check
+        run: |
+          python -m py_compile skills/_common.py
+          python -m py_compile skills/registro-horas/registrar_horas.py
+          python -m py_compile skills/ticket-infra/crear_ticket_confiani.py
+
+      - name: Validar config.toml
+        run: |
+          python -c "
+          import tomllib, sys
+          from pathlib import Path
+          d = tomllib.loads(Path('config.toml').read_text())
+          assert 'ripor' in d, 'Falta sección [ripor]'
+          assert 'confiani' in d, 'Falta sección [confiani]'
+          print('✓ config.toml OK:', list(d.keys()))
+          "
+
+      - name: Smoke test (sin red, sin Playwright)
+        run: |
+          # Forzamos placeholders para asegurar que el sistema de mensajes
+          # avisa correctamente cuando faltan valores.
+          set +e
+          python skills/registro-horas/registrar_horas.py --descripcion x --evidencia https://x 2>&1 | grep -q "config.local.toml"
+          test $? -eq 0 || { echo "Mensaje de placeholder no apareció"; exit 1; }
+          echo "✓ Mensaje de placeholder OK"
+
+  ruff:
+    name: Lint Ruff (informativo)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.10" }
+      - run: pip install ruff
+      - run: ruff check skills/ || true

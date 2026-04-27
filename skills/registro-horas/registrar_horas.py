@@ -19,7 +19,6 @@ import sys
 import traceback
 from datetime import date
 from pathlib import Path
-from typing import Optional
 
 # Permitir importar skills/_common.py cuando se ejecuta directamente.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -27,6 +26,10 @@ from _common import (
     DEFAULT_VIEWPORT,
     add_browser_args,
     capturas_dir,
+    fecha_iso,
+    load_config,
+    require_config_value,
+    sanitize_html_for_dump,
     snap,
     warn_if_world_readable,
 )
@@ -36,10 +39,10 @@ from playwright.sync_api import Page, sync_playwright
 RIPOR_URL = "https://ripor.co/u"
 RIPOR_HORAS_URL = "https://ripor.co/u/horas"
 
-PROYECTO_DEFAULT = "005 - PROYECTO POSITIVA SGDEA 2026 - 3T"
-TAREA_DEFAULT = "Tarea Personalizada"
-HORAS_DEFAULT = 9
-TRANSPORTE_DEFAULT = "🏍️ Moto particular"
+_CFG = load_config("ripor")
+TAREA_DEFAULT = _CFG.get("tarea", "Tarea Personalizada")
+HORAS_DEFAULT = int(_CFG.get("horas", 9))
+TRANSPORTE_DEFAULT = _CFG.get("transporte", "🏍️ Moto particular")
 
 STATE_FILE = Path(__file__).resolve().parent / "state.json"
 CAPTURAS = capturas_dir(__file__)
@@ -56,31 +59,31 @@ def _login_manual(pw) -> None:
     print("[ripor] Haz login en ESTA ventana (sin tus extensiones). Tienes 8 min.")
     browser = pw.chromium.launch(headless=False, **LAUNCH_ARGS)
     context = browser.new_context(viewport=DEFAULT_VIEWPORT)
-    page = context.new_page()
-    page.goto(RIPOR_URL, wait_until="domcontentloaded")
     try:
-        page.wait_for_function(
-            "() => !location.pathname.startsWith('/login') && !location.hostname.includes('google')",
-            timeout=480000,
-        )
-        # Supabase escribe en localStorage de forma async tras el redirect.
-        page.wait_for_function(
-            "() => Object.keys(localStorage).some(k => k.includes('sb-') && k.includes('auth'))",
-            timeout=10000,
-        )
+        page = context.new_page()
+        page.goto(RIPOR_URL, wait_until="domcontentloaded")
+        try:
+            page.wait_for_function(
+                "() => !location.pathname.startsWith('/login') && !location.hostname.includes('google')",
+                timeout=480000,
+            )
+            # Supabase escribe en localStorage de forma async tras el redirect.
+            page.wait_for_function(
+                "() => Object.keys(localStorage).some(k => k.includes('sb-') && k.includes('auth'))",
+                timeout=10000,
+            )
+        except Exception as e:
+            sys.exit(
+                f"❌ Timeout o error en login: {type(e).__name__}: {e}\n"
+                "Relanza --login-manual y completa el flujo Google OAuth."
+            )
         print(f"[ripor] ✅ Login detectado. URL: {page.url}")
         context.storage_state(path=str(STATE_FILE))
         warn_if_world_readable(STATE_FILE)
         print(f"[ripor] Estado guardado en: {STATE_FILE.name}")
-    except Exception as e:
+    finally:
         context.close()
         browser.close()
-        sys.exit(
-            f"❌ Timeout o error en login: {type(e).__name__}: {e}\n"
-            "Relanza --login-manual y completa el flujo Google OAuth."
-        )
-    context.close()
-    browser.close()
 
 
 _MESES_ES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -139,7 +142,7 @@ def _seleccionar_fecha(page: Page, fecha: date) -> None:
     html_celda = locator.evaluate("el => el.outerHTML")
     html_padre = locator.evaluate("el => el.parentElement?.outerHTML")
     (CAPTURAS / "error_fecha_no_fijada.html").write_text(
-        f"CELDA:\n{html_celda}\n\nPADRE:\n{html_padre}",
+        sanitize_html_for_dump(f"CELDA:\n{html_celda}\n\nPADRE:\n{html_padre}"),
         encoding="utf-8",
     )
     raise RuntimeError(
@@ -181,11 +184,11 @@ def _rellenar_modal(
 def registrar_horas(
     descripcion: str,
     evidencia: str,
-    proyecto: str = PROYECTO_DEFAULT,
+    proyecto: str,
     tarea: str = TAREA_DEFAULT,
     horas: int = HORAS_DEFAULT,
     transporte: str = TRANSPORTE_DEFAULT,
-    fecha: Optional[date] = None,
+    fecha: date | None = None,
     headless: bool = False,
     dry_run: bool = False,
 ) -> dict:
@@ -249,7 +252,7 @@ def registrar_horas(
                 snap(page, CAPTURAS, "error_submit")
                 try:
                     (CAPTURAS / "error_submit.html").write_text(
-                        page.content(), encoding="utf-8"
+                        sanitize_html_for_dump(page.content()), encoding="utf-8"
                     )
                 except Exception as dump_err:
                     print(f"      ⚠️  no se pudo volcar HTML de error: {dump_err!r}")
@@ -270,10 +273,12 @@ def main() -> None:
                         help="Abre Chrome para login Google una vez (guarda state.json)")
     parser.add_argument("--descripcion", help="Descripción de actividades")
     parser.add_argument("--evidencia", help="URL de evidencia")
-    parser.add_argument("--proyecto", default=PROYECTO_DEFAULT)
+    parser.add_argument("--proyecto", default=_CFG.get("proyecto"),
+                        help="Texto exacto del proyecto en Ripor. Default: config.toml.")
     parser.add_argument("--horas", type=int, default=HORAS_DEFAULT)
     parser.add_argument("--transporte", default=TRANSPORTE_DEFAULT)
-    parser.add_argument("--fecha", help="YYYY-MM-DD (default: hoy)")
+    parser.add_argument("--fecha", type=fecha_iso, default=None,
+                        help="YYYY-MM-DD (default: hoy)")
     add_browser_args(parser)
     args = parser.parse_args()
 
@@ -287,15 +292,18 @@ def main() -> None:
     if not descripcion or not evidencia:
         sys.exit("❌ --descripcion y --evidencia son obligatorios (no pueden estar vacíos)")
 
-    fecha = date.fromisoformat(args.fecha) if args.fecha else None
+    proyecto = require_config_value(
+        {"proyecto": args.proyecto}, "proyecto", "ripor", "--proyecto"
+    )
+
     resultado = registrar_horas(
         descripcion=descripcion,
         evidencia=evidencia,
-        proyecto=args.proyecto,
+        proyecto=proyecto,
         tarea=TAREA_DEFAULT,
         horas=args.horas,
         transporte=args.transporte,
-        fecha=fecha,
+        fecha=args.fecha,
         headless=args.headless,
         dry_run=args.dry_run,
     )

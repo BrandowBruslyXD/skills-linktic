@@ -1,19 +1,52 @@
 #!/usr/bin/env bash
+# skills-linktic — setup local (crea venv, instala deps, pide credenciales).
+
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+# --- Lectura interactiva ---------------------------------------------------
+# Cuando setup.sh se invoca desde install.sh (que a su vez puede correr vía
+# `bash <(curl ...)`), stdin puede estar conectado al pipe de curl. Forzamos
+# la lectura desde la TTY real para que las pulsaciones del usuario lleguen
+# aquí y no al script padre.
+TTY_IN=""
+if [ -t 0 ]; then
+  TTY_IN="/dev/stdin"
+elif [ -e /dev/tty ] && (true < /dev/tty) 2>/dev/null; then
+  TTY_IN="/dev/tty"
+fi
+
+ask() {
+  local var="$1" prompt="$2" silent="${3:-0}"
+  if [ -z "$TTY_IN" ]; then
+    echo "❌ Sin TTY interactiva: re-ejecuta el setup en un terminal real" >&2
+    exit 1
+  fi
+  if [ "$silent" = "1" ]; then
+    printf '%s' "$prompt"
+    IFS= read -rs "$var" < "$TTY_IN"
+    echo
+  else
+    printf '%s' "$prompt"
+    IFS= read -r "$var" < "$TTY_IN"
+  fi
+}
+
+# --- Args ------------------------------------------------------------------
 SKIP_LOGIN=0
+SKIP_CONFIG=0
 for arg in "$@"; do
   case "$arg" in
-    --skip-login) SKIP_LOGIN=1 ;;
+    --skip-login)  SKIP_LOGIN=1 ;;
+    --skip-config) SKIP_CONFIG=1 ;;
     -h|--help)
       cat <<EOF
-Uso: bash setup.sh [--skip-login]
+Uso: bash setup.sh [--skip-login] [--skip-config]
 
-Opciones:
-  --skip-login   No ejecuta el login manual de Ripor (útil en CI o reinstalaciones).
+  --skip-login    No abre Chrome para login Ripor.
+  --skip-config   No pregunta proyecto/centro de costo (lo dejas para después).
 EOF
       exit 0
       ;;
@@ -24,82 +57,131 @@ done
 echo "🐍 Verificando Python..."
 PYTHON_CMD="${PYTHON_CMD:-python3}"
 if ! command -v "$PYTHON_CMD" >/dev/null 2>&1; then
-  echo "❌ ERROR: No se encontró $PYTHON_CMD. Instala Python 3.10+ y vuelve a intentar." >&2
+  echo "❌ No se encontró $PYTHON_CMD. Instala Python 3.10+ y vuelve a intentar." >&2
   exit 1
 fi
 
-PY_VER="$("$PYTHON_CMD" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
-PY_MAJOR="${PY_VER%.*}"
-PY_MINOR="${PY_VER#*.}"
-if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }; then
-  echo "❌ ERROR: Se requiere Python 3.10+. Encontrado: $PY_VER" >&2
+if ! "$PYTHON_CMD" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)'; then
+  PY_VER="$("$PYTHON_CMD" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+  echo "❌ Se requiere Python 3.10+. Encontrado: $PY_VER" >&2
   exit 1
 fi
 
-echo "📦 Creando entorno virtual..."
+# Validar que el módulo `venv` está disponible (Debian/Ubuntu lo separan).
+if ! "$PYTHON_CMD" -c 'import venv' 2>/dev/null; then
+  echo "❌ El módulo 'venv' no está disponible para $PYTHON_CMD." >&2
+  echo "   Instala con: sudo apt install python3-venv  (Debian/Ubuntu)" >&2
+  echo "   o:          sudo dnf install python3        (Fedora/RHEL)" >&2
+  exit 1
+fi
+
+# --- Venv ------------------------------------------------------------------
 VENV_DIR="$ROOT/.venv"
+# Detectar venv corrupto/incompleto (interrumpido en setup previo).
+if [ -d "$VENV_DIR" ] && [ ! -x "$VENV_DIR/bin/python" ]; then
+  echo "♻️  .venv parece corrupto, recreando..."
+  rm -rf "$VENV_DIR"
+fi
 if [ ! -d "$VENV_DIR" ]; then
+  echo "📦 Creando entorno virtual en $VENV_DIR..."
   "$PYTHON_CMD" -m venv "$VENV_DIR"
 fi
 
-echo "🔧 Activando entorno y actualizando pip..."
 # shellcheck disable=SC1091
 source "$VENV_DIR/bin/activate"
-python -m pip install --upgrade pip setuptools wheel
+echo "🔧 Actualizando pip..."
+python -m pip install --upgrade --quiet pip setuptools wheel
 
 echo "📚 Instalando dependencias..."
-if [ -f "skills/registro-horas/requirements.txt" ]; then
-  python -m pip install -r skills/registro-horas/requirements.txt
-fi
-if [ -f "skills/ticket-infra/requirements.txt" ]; then
-  python -m pip install -r skills/ticket-infra/requirements.txt
+for req in skills/registro-horas/requirements.txt skills/ticket-infra/requirements.txt; do
+  [ -f "$req" ] && python -m pip install --quiet -r "$req"
+done
+
+# Idempotencia: extraer la ruta de instalación que reporta Playwright y verificar
+# que el directorio existe (evita re-descargar 200MB en cada setup).
+CHROMIUM_PATH="$(python -m playwright install chromium --dry-run 2>&1 \
+  | grep -oE '/[^ ]*chromium-[0-9]+' | head -1)"
+if [ -n "$CHROMIUM_PATH" ] && [ -d "$CHROMIUM_PATH" ]; then
+  echo "✅ Chromium ya está instalado ($CHROMIUM_PATH)."
+else
+  echo "🌐 Descargando Chromium para Playwright..."
+  python -m playwright install chromium
 fi
 
-echo "🌐 Instalando Chromium para Playwright..."
-python -m playwright install chromium
-
+# --- Credenciales Confiani -------------------------------------------------
 echo "🔐 Configurando credenciales de Confiani..."
 ENV_FILE="$ROOT/.env"
 if [ -f "$ENV_FILE" ]; then
   echo "✅ Usando credenciales existentes en .env"
 else
-  printf "📧 Correo de Confiani: "
-  read -r CONFIANI_USER
-  printf "🔑 Contraseña de Confiani: "
-  read -rs CONFIANI_PASSWORD
-  echo
+  ask CONFIANI_USER     "📧 Correo de Confiani: "
+  ask CONFIANI_PASSWORD "🔑 Contraseña de Confiani: " 1
 
-  # Escribimos clave=valor en plano vía Python para evitar interpolación de
-  # bash en valores con $, backticks, comillas o backslashes.
   umask 077
   CONFIANI_USER="$CONFIANI_USER" CONFIANI_PASSWORD="$CONFIANI_PASSWORD" \
     python - "$ENV_FILE" <<'PY'
 import os, sys
 path = sys.argv[1]
-user = os.environ["CONFIANI_USER"]
-pwd  = os.environ["CONFIANI_PASSWORD"]
 with open(path, "w", encoding="utf-8") as f:
-    f.write(f"CONFIANI_USER={user}\n")
-    f.write(f"CONFIANI_PASSWORD={pwd}\n")
+    f.write(f"CONFIANI_USER={os.environ['CONFIANI_USER']}\n")
+    f.write(f"CONFIANI_PASSWORD={os.environ['CONFIANI_PASSWORD']}\n")
 PY
   chmod 600 "$ENV_FILE"
   unset CONFIANI_USER CONFIANI_PASSWORD
   echo "✅ Credenciales guardadas en .env (permisos 600)"
 fi
 
+# --- Configuración por usuario --------------------------------------------
+LOCAL_CFG="$ROOT/config.local.toml"
+if [ "$SKIP_CONFIG" -eq 1 ]; then
+  echo "⏭️  --skip-config: salto configuración de proyecto/centro de costo."
+elif [ -f "$LOCAL_CFG" ]; then
+  echo "✅ config.local.toml ya existe."
+else
+  echo ""
+  echo "🧩 Configuración personal (proyecto/centro de costo)."
+  echo "   Estos valores los puedes dejar vacíos y configurarlos después editando"
+  echo "   $LOCAL_CFG, o sobrescribirlos por flag CLI / variable SKILLS_*."
+  echo ""
+  ask RIPOR_PROYECTO    "📊 Proyecto en Ripor (texto exacto del dropdown): "
+  ask CONFIANI_PROCESO  "🏷️  Proceso Confiani (ej. 'Proceso de Ingeniería Cloud'): "
+  ask CONFIANI_SERVICIO "🛠️  Servicio Confiani (ej. 'Gestión - GCP'): "
+  ask CONFIANI_CC       "💰 Centro de costo prefijo (ej. '[0004008]'): "
+
+  RIPOR_PROYECTO="$RIPOR_PROYECTO" CONFIANI_PROCESO="$CONFIANI_PROCESO" \
+  CONFIANI_SERVICIO="$CONFIANI_SERVICIO" CONFIANI_CC="$CONFIANI_CC" \
+    python - "$LOCAL_CFG" <<'PY'
+import os, sys
+path = sys.argv[1]
+with open(path, "w", encoding="utf-8") as f:
+    f.write("# Generado por setup.sh — edita libremente.\n\n")
+    f.write("[ripor]\n")
+    if os.environ['RIPOR_PROYECTO']:
+        f.write(f'proyecto = "{os.environ["RIPOR_PROYECTO"]}"\n')
+    f.write("\n[confiani]\n")
+    if os.environ['CONFIANI_PROCESO']:
+        f.write(f'proceso              = "{os.environ["CONFIANI_PROCESO"]}"\n')
+    if os.environ['CONFIANI_SERVICIO']:
+        f.write(f'servicio             = "{os.environ["CONFIANI_SERVICIO"]}"\n')
+    if os.environ['CONFIANI_CC']:
+        f.write(f'centro_costo_prefijo = "{os.environ["CONFIANI_CC"]}"\n')
+PY
+  echo "✅ config.local.toml creado."
+fi
+
+# --- Login Ripor -----------------------------------------------------------
 if [ "$SKIP_LOGIN" -eq 1 ]; then
   echo "⏭️  --skip-login: omitiendo login Ripor."
 elif [ -f "$ROOT/skills/registro-horas/state.json" ]; then
-  echo "✅ Sesión de Ripor ya existe (state.json). Si expiró, ejecuta: skills login"
+  echo "✅ Sesión de Ripor ya existe. Si expira, ejecuta: skills login"
 else
   echo "🔑 Configurando sesión de Ripor (Google OAuth)..."
-  echo "   Se abrirá Chrome para que hagas login con Google."
-  echo "   Completa el login y cierra la ventana cuando termines."
-  printf "   Presiona Enter para continuar... "
-  read -r _
+  echo "   Se abrirá Chrome. Completa el login y cierra la ventana al terminar."
+  ask _ENTER "   Presiona Enter para continuar... "
   python skills/registro-horas/registrar_horas.py --login-manual
 fi
 
+# --- Comando global --------------------------------------------------------
 echo ""
 echo "🔧 Configurando comando global 'skills'..."
 
@@ -107,10 +189,12 @@ SHELL_RC=""
 case "${SHELL:-}" in
   *zsh*)  SHELL_RC="$HOME/.zshrc" ;;
   *bash*) SHELL_RC="$HOME/.bashrc" ;;
+  *fish*) SHELL_RC="$HOME/.config/fish/config.fish" ;;
 esac
 
 SOURCE_LINE="source \"$ROOT/skills.sh\""
 if [ -n "$SHELL_RC" ]; then
+  mkdir -p "$(dirname "$SHELL_RC")"
   [ -f "$SHELL_RC" ] || touch "$SHELL_RC"
   if grep -qF "$SOURCE_LINE" "$SHELL_RC"; then
     echo "✅ Comando 'skills' ya configurado en $SHELL_RC"
@@ -121,7 +205,6 @@ if [ -n "$SHELL_RC" ]; then
       echo "$SOURCE_LINE"
     } >> "$SHELL_RC"
     echo "✅ Agregado a $SHELL_RC"
-    echo "   Recarga con: source $SHELL_RC"
   fi
 else
   echo "⚠️  Shell no detectada. Agrega manualmente a tu rc file:"
@@ -132,7 +215,7 @@ cat <<EOF
 
 🎉 ¡Instalación completa!
 
-Para usar 'skills' en esta misma terminal sin reiniciar:
+Para usar 'skills' AHORA en esta terminal:
    source "$ROOT/skills.sh"
 
 Comandos disponibles:
@@ -140,6 +223,4 @@ Comandos disponibles:
    skills ticket  --asunto "..." --descripcion "..."
    skills login
    skills help
-
-💡 Abre skills-linktic.code-workspace en VS Code para desarrollo integrado.
 EOF

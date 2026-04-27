@@ -59,8 +59,12 @@ skills() {
         cat <<'EOF'
 skills-linktic — comandos disponibles:
 
-  skills ripor   --descripcion "..." --evidencia "..." [--fecha YYYY-MM-DD]
-  skills ticket  --asunto "..." (--descripcion "..." | --descripcion-archivo PATH) [--adjunto PATH]
+  skills ripor   --descripcion "..." --evidencia "..."
+                 [--proyecto "..."] [--horas N] [--transporte "..."]
+                 [--fecha YYYY-MM-DD]
+  skills ticket  --asunto "..." (--descripcion "..." | --descripcion-archivo PATH)
+                 [--proceso "..."] [--servicio "..."] [--centro-costo "[NNNN]"]
+                 [--adjunto PATH]
   skills login   Login manual de Google en Ripor (genera state.json)
   skills help    Esta ayuda
 
@@ -68,8 +72,13 @@ Banderas comunes:
   --headless     Oculta el navegador
   --dry-run      Llena el formulario pero no envía
 
-Variables:
-  SKILLS_LINKTIC_HOME   Override del directorio de instalación
+Configuración:
+  config.toml          defaults del equipo (commiteado)
+  config.local.toml    overrides personales (gitignored)
+  SKILLS_<SEC>_<KEY>   override por env var (ej. SKILLS_RIPOR_PROYECTO)
+
+Variables de entorno:
+  SKILLS_LINKTIC_HOME   override del directorio de instalación
 EOF
         return 0
     fi

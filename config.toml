@@ -1,0 +1,25 @@
+# Plantilla de configuración del equipo. **NO edites este archivo para tu uso
+# personal**: copia el bloque que necesites a `config.local.toml` (gitignored)
+# y sobrescribe ahí. También puedes pasar los mismos valores como flags CLI o
+# variables de entorno con prefijo `SKILLS_<seccion>_<clave>`.
+#
+# Precedencia (gana el primero):
+#   1. flag CLI (ej. --proyecto)
+#   2. variable de entorno (ej. SKILLS_RIPOR_PROYECTO)
+#   3. config.local.toml
+#   4. config.toml (este archivo)
+
+[ripor]
+# Texto exacto del proyecto en el dropdown de Ripor.
+# Cámbialo en config.local.toml según tu asignación actual.
+proyecto    = "REEMPLAZA_EN_CONFIG_LOCAL"
+tarea       = "Tarea Personalizada"
+horas       = 9
+transporte  = "🏍️ Moto particular"
+
+[confiani]
+# Textos visibles en los selects del helpdesk Confiani (Odoo).
+# Cámbialos en config.local.toml según tu rol/proyecto.
+proceso              = "REEMPLAZA_EN_CONFIG_LOCAL"
+servicio             = "REEMPLAZA_EN_CONFIG_LOCAL"
+centro_costo_prefijo = "REEMPLAZA_EN_CONFIG_LOCAL"
