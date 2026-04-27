@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+.env
+
+# Playwright (capturas de debug y estado de sesión)
+skills/**/capturas/
+skills/registro-horas/state.json
+
+# Archivos temporales para tickets
+ticket_descripcion.txt
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/*.local.json
+
+# Estado runtime de Ruflo / Claude Flow (local, no portable)
+.claude-flow/
+.swarm/
+data/memory/
