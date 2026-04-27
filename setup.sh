@@ -8,30 +8,43 @@ cd "$ROOT"
 
 # --- Lectura interactiva ---------------------------------------------------
 # Cuando setup.sh se invoca desde install.sh (que a su vez puede correr vía
-# `bash <(curl ...)`), stdin puede estar conectado al pipe de curl. Forzamos
-# la lectura desde la TTY real para que las pulsaciones del usuario lleguen
-# aquí y no al script padre.
-TTY_IN=""
-if [ -t 0 ]; then
-  TTY_IN="/dev/stdin"
-elif [ -e /dev/tty ] && (true < /dev/tty) 2>/dev/null; then
-  TTY_IN="/dev/tty"
+# `bash <(curl ...)` o `curl ... | bash`), stdin del script puede estar
+# conectado al pipe de curl. Reasignamos stdin (FD 0) a /dev/tty para que
+# `read` bloquee de verdad y reciba las teclas del usuario.
+if ! [ -t 0 ]; then
+  if [ -e /dev/tty ]; then
+    exec </dev/tty
+  fi
+fi
+
+if ! [ -t 0 ]; then
+  echo "❌ Sin TTY interactiva. El setup necesita preguntarte credenciales." >&2
+  echo "   Ejecuta directamente en una terminal:" >&2
+  echo "     git clone https://github.com/BrandowBruslyXD/skills-linktic.git" >&2
+  echo "     cd skills-linktic && bash setup.sh" >&2
+  exit 1
 fi
 
 ask() {
   local var="$1" prompt="$2" silent="${3:-0}"
-  if [ -z "$TTY_IN" ]; then
-    echo "❌ Sin TTY interactiva: re-ejecuta el setup en un terminal real" >&2
-    exit 1
-  fi
+  local val=""
   if [ "$silent" = "1" ]; then
-    printf '%s' "$prompt"
-    IFS= read -rs "$var" < "$TTY_IN"
-    echo
+    printf '%s' "$prompt" >&2
+    if ! IFS= read -rs val; then
+      echo >&2
+      echo "❌ Lectura interrumpida (EOF). Aborto." >&2
+      exit 1
+    fi
+    echo >&2
   else
-    printf '%s' "$prompt"
-    IFS= read -r "$var" < "$TTY_IN"
+    printf '%s' "$prompt" >&2
+    if ! IFS= read -r val; then
+      echo >&2
+      echo "❌ Lectura interrumpida (EOF). Aborto." >&2
+      exit 1
+    fi
   fi
+  printf -v "$var" '%s' "$val"
 }
 
 # --- Args ------------------------------------------------------------------
