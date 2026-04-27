@@ -26,23 +26,15 @@ if ! [ -t 0 ]; then
 fi
 
 ask() {
-  local var="$1" prompt="$2" silent="${3:-0}"
+  # Tercer arg ignorado: las contraseñas se muestran visibles al escribir
+  # para evitar typos (es tu máquina, tu terminal — el .env queda en disco igual).
+  local var="$1" prompt="$2"
   local val=""
-  if [ "$silent" = "1" ]; then
-    printf '%s' "$prompt" >&2
-    if ! IFS= read -rs val; then
-      echo >&2
-      echo "❌ Lectura interrumpida (EOF). Aborto." >&2
-      exit 1
-    fi
+  printf '%s' "$prompt" >&2
+  if ! IFS= read -r val; then
     echo >&2
-  else
-    printf '%s' "$prompt" >&2
-    if ! IFS= read -r val; then
-      echo >&2
-      echo "❌ Lectura interrumpida (EOF). Aborto." >&2
-      exit 1
-    fi
+    echo "❌ Lectura interrumpida (EOF). Aborto." >&2
+    exit 1
   fi
   printf -v "$var" '%s' "$val"
 }
@@ -163,7 +155,7 @@ if [ -f "$ENV_FILE" ]; then
   echo "✅ Usando credenciales existentes en .env"
 else
   ask CONFIANI_USER     "📧 Correo Confiani  (ej. nombre.apellido@linktic.com): "
-  ask CONFIANI_PASSWORD "🔑 Contraseña Confiani (la del helpdesk, no la de Google): " 1
+  ask CONFIANI_PASSWORD "🔑 Contraseña Confiani (visible al escribir, revisa typos): "
 
   umask 077
   CONFIANI_USER="$CONFIANI_USER" CONFIANI_PASSWORD="$CONFIANI_PASSWORD" \
