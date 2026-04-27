@@ -20,6 +20,29 @@ echo Uso: setup.bat [--skip-login] [--skip-config]
 exit /b 0
 :args_done
 
+echo.
+echo ===========================================================================
+echo   skills-linktic - instalacion
+echo ===========================================================================
+echo.
+echo Esta herramienta automatiza DOS servicios DIFERENTES, cada uno con SUS
+echo propias credenciales. Te las pedire por separado mas adelante:
+echo.
+echo   1) Ripor (https://ripor.co)        - registro de horas
+echo        Login con Google. Solo abro Chrome y haces login UNA vez.
+echo        NO te pido password aqui: la pones tu en Google.
+echo.
+echo   2) Confiani (https://erp.confiani.com)  - tickets de infraestructura
+echo        Login con email + contrasena del HELPDESK (Odoo).
+echo        NO es la misma cuenta que Ripor ni tu Google corporativo.
+echo.
+echo   3) Tu proyecto / centro de costo (config personal)
+echo        Texto del proyecto, proceso, servicio y centro de costo.
+echo        Cambian por persona y se guardan en config.local.toml.
+echo.
+echo ===========================================================================
+echo.
+
 echo Verificando Python...
 where python >nul 2>nul
 if %errorlevel% neq 0 (
@@ -65,12 +88,15 @@ if exist "skills\ticket-infra\requirements.txt"  python -m pip install --quiet -
 echo Instalando Chromium para Playwright...
 python -m playwright install chromium
 
-echo Configurando credenciales de Confiani...
+echo.
+echo --- PASO 1/3: Credenciales de CONFIANI (helpdesk Odoo) ---
+echo NO confundir con Google ni con Ripor. Cuenta de https://erp.confiani.com/web/login
+echo.
 if exist ".env" (
     echo Usando credenciales existentes en .env
 ) else (
-    set /p CONFIANI_USER=Correo de Confiani:
-    set /p CONFIANI_PASSWORD=Password de Confiani:
+    set /p CONFIANI_USER=Correo Confiani (ej. nombre.apellido@linktic.com):
+    set /p CONFIANI_PASSWORD=Password Confiani (helpdesk, NO Google):
     python -c "import os; open(r'%ROOT%\.env','w',encoding='utf-8').write('CONFIANI_USER=' + os.environ['CONFIANI_USER'] + '\nCONFIANI_PASSWORD=' + os.environ['CONFIANI_PASSWORD'] + '\n')"
     set CONFIANI_USER=
     set CONFIANI_PASSWORD=
@@ -84,11 +110,14 @@ if "%SKIP_CONFIG%"=="1" (
     echo config.local.toml ya existe
 ) else (
     echo.
-    echo Configuracion personal proyecto / centro de costo:
-    set /p RIPOR_PROYECTO=Proyecto en Ripor (texto exacto):
-    set /p CONFIANI_PROCESO=Proceso Confiani:
-    set /p CONFIANI_SERVICIO=Servicio Confiani:
-    set /p CONFIANI_CC=Centro de costo prefijo:
+    echo --- PASO 2/3: Tu proyecto / centro de costo ---
+    echo Estos cambian por persona. Si no los conoces ahora, deja en blanco
+    echo y edita despues config.local.toml.
+    echo.
+    set /p RIPOR_PROYECTO=[Ripor] Proyecto exacto del dropdown:
+    set /p CONFIANI_PROCESO=[Confiani] Proceso (ej. Proceso de Ingenieria Cloud):
+    set /p CONFIANI_SERVICIO=[Confiani] Servicio (ej. Gestion - GCP):
+    set /p CONFIANI_CC=[Confiani] Centro de costo prefijo (ej. [0004008]):
     python -c "import os; open(r'%ROOT%\config.local.toml','w',encoding='utf-8').write('# Generado por setup.bat\n\n[ripor]\n' + ('proyecto = \"' + os.environ.get('RIPOR_PROYECTO','') + '\"\n' if os.environ.get('RIPOR_PROYECTO') else '') + '\n[confiani]\n' + ''.join([f'{k} = \"{os.environ[v]}\"\n' for k,v in [('proceso','CONFIANI_PROCESO'),('servicio','CONFIANI_SERVICIO'),('centro_costo_prefijo','CONFIANI_CC')] if os.environ.get(v)]))"
     set RIPOR_PROYECTO=
     set CONFIANI_PROCESO=
@@ -102,7 +131,11 @@ if "%SKIP_LOGIN%"=="1" (
 ) else if exist "skills\registro-horas\state.json" (
     echo Sesion de Ripor ya existe
 ) else (
-    echo Configurando sesion de Ripor Google OAuth...
+    echo.
+    echo --- PASO 3/3: Login de RIPOR (Google OAuth) ---
+    echo Voy a abrir Chrome. Inicia sesion con tu Google CORPORATIVO
+    echo (la cuenta con la que entras normalmente a Ripor).
+    echo Cuando veas https://ripor.co/u/horas cargado, cierra Chrome.
     pause
     python skills\registro-horas\registrar_horas.py --login-manual
 )

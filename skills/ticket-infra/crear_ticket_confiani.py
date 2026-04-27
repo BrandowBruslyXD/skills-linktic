@@ -284,7 +284,18 @@ def _leer_env() -> tuple[str, str]:
             user = user or datos.get("CONFIANI_USER")
             pwd = pwd or datos.get("CONFIANI_PASSWORD")
     if not user or not pwd:
-        sys.exit("❌ Faltan CONFIANI_USER / CONFIANI_PASSWORD (env vars o .env)")
+        sys.exit(
+            "❌ Faltan credenciales de Confiani (helpdesk Odoo, NO Google).\n"
+            "   Confiani es la plataforma https://erp.confiani.com — necesita\n"
+            "   usuario y password del helpdesk. Tres formas de configurarlas:\n"
+            "       1) Re-ejecutar:  bash setup.sh   (te pregunta y crea .env)\n"
+            "       2) Crear .env manualmente con:\n"
+            "             CONFIANI_USER=tu.email@linktic.com\n"
+            "             CONFIANI_PASSWORD=tu_password_helpdesk\n"
+            "       3) Exportar variables:\n"
+            "             export CONFIANI_USER=...\n"
+            "             export CONFIANI_PASSWORD=..."
+        )
     return user, pwd
 
 

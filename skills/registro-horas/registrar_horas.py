@@ -196,8 +196,10 @@ def registrar_horas(
 
     if not STATE_FILE.exists():
         sys.exit(
-            f"❌ No hay sesión guardada ({STATE_FILE.name}). Ejecuta primero:\n"
-            f"   python skills/registro-horas/registrar_horas.py --login-manual"
+            "❌ No hay sesión de Ripor guardada (state.json no existe).\n"
+            "   Ripor usa login con tu Google CORPORATIVO. Para crear la sesión:\n"
+            "       skills login\n"
+            "   Esto abre Chrome una sola vez; haces login con Google y se guarda."
         )
     warn_if_world_readable(STATE_FILE)
 
@@ -220,7 +222,8 @@ def registrar_horas(
                 context.close()
                 browser.close()
                 sys.exit(
-                    "❌ Sesión de Google expiró. Relanza con --login-manual para renovarla."
+                    "❌ Tu sesión de Google en Ripor expiró.\n"
+                    "   Renuévala ejecutando:  skills login"
                 )
             raise
 

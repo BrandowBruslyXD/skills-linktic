@@ -54,6 +54,35 @@ EOF
   esac
 done
 
+cat <<'EOF'
+
+═══════════════════════════════════════════════════════════════════════════
+  skills-linktic — instalación
+═══════════════════════════════════════════════════════════════════════════
+
+Esta herramienta automatiza DOS servicios DIFERENTES, cada uno con SUS
+propias credenciales. Te las pediré por separado más adelante:
+
+  1) Ripor (https://ripor.co)        → registro de horas
+       · Login con Google. Solo te abro Chrome y haces login UNA vez.
+       · NO te pido contraseña aquí: la ingresas tú directamente en Google.
+       · La sesión queda guardada en skills/registro-horas/state.json.
+
+  2) Confiani (https://erp.confiani.com)  → tickets de infraestructura
+       · Login con email + contraseña del HELPDESK (Odoo).
+       · NO es la misma cuenta que Ripor, NI tu Google corporativo.
+       · Te las pido aquí y se guardan en .env (chmod 600, gitignored).
+
+  3) Tu proyecto / centro de costo (config personal)
+       · Texto exacto del proyecto en Ripor (ej: "005 - PROYECTO X 2026 - 3T").
+       · Proceso, servicio y centro de costo en Confiani.
+       · Estos cambian por persona y se guardan en config.local.toml
+         (también gitignored).
+
+═══════════════════════════════════════════════════════════════════════════
+
+EOF
+
 echo "🐍 Verificando Python..."
 PYTHON_CMD="${PYTHON_CMD:-python3}"
 if ! command -v "$PYTHON_CMD" >/dev/null 2>&1; then
@@ -109,13 +138,19 @@ else
 fi
 
 # --- Credenciales Confiani -------------------------------------------------
-echo "🔐 Configurando credenciales de Confiani..."
+echo ""
+echo "──────────────────────────────────────────────────────────────────"
+echo "  PASO 1/3 — Credenciales de CONFIANI (helpdesk Odoo)"
+echo "──────────────────────────────────────────────────────────────────"
+echo "  ⚠️  NO confundas con tu cuenta de Google ni con la de Ripor."
+echo "      Es la cuenta con la que entras a https://erp.confiani.com/web/login"
+echo ""
 ENV_FILE="$ROOT/.env"
 if [ -f "$ENV_FILE" ]; then
   echo "✅ Usando credenciales existentes en .env"
 else
-  ask CONFIANI_USER     "📧 Correo de Confiani: "
-  ask CONFIANI_PASSWORD "🔑 Contraseña de Confiani: " 1
+  ask CONFIANI_USER     "📧 Correo Confiani  (ej. nombre.apellido@linktic.com): "
+  ask CONFIANI_PASSWORD "🔑 Contraseña Confiani (la del helpdesk, no la de Google): " 1
 
   umask 077
   CONFIANI_USER="$CONFIANI_USER" CONFIANI_PASSWORD="$CONFIANI_PASSWORD" \
@@ -139,14 +174,17 @@ elif [ -f "$LOCAL_CFG" ]; then
   echo "✅ config.local.toml ya existe."
 else
   echo ""
-  echo "🧩 Configuración personal (proyecto/centro de costo)."
-  echo "   Estos valores los puedes dejar vacíos y configurarlos después editando"
-  echo "   $LOCAL_CFG, o sobrescribirlos por flag CLI / variable SKILLS_*."
+  echo "──────────────────────────────────────────────────────────────────"
+  echo "  PASO 2/3 — Tu proyecto / centro de costo (config personal)"
+  echo "──────────────────────────────────────────────────────────────────"
+  echo "  Estos valores varían por persona y por asignación. Si no los"
+  echo "  conoces ahora, deja todos en blanco y edita después:"
+  echo "      $LOCAL_CFG"
   echo ""
-  ask RIPOR_PROYECTO    "📊 Proyecto en Ripor (texto exacto del dropdown): "
-  ask CONFIANI_PROCESO  "🏷️  Proceso Confiani (ej. 'Proceso de Ingeniería Cloud'): "
-  ask CONFIANI_SERVICIO "🛠️  Servicio Confiani (ej. 'Gestión - GCP'): "
-  ask CONFIANI_CC       "💰 Centro de costo prefijo (ej. '[0004008]'): "
+  ask RIPOR_PROYECTO    "📊 [Ripor]   Proyecto exacto del dropdown (ej. '005 - PROYECTO X 2026 - 3T'): "
+  ask CONFIANI_PROCESO  "🏷️  [Confiani] Proceso (ej. 'Proceso de Ingeniería Cloud'): "
+  ask CONFIANI_SERVICIO "🛠️  [Confiani] Servicio (ej. 'Gestión - GCP'): "
+  ask CONFIANI_CC       "💰 [Confiani] Centro de costo prefijo (ej. '[0004008]'): "
 
   RIPOR_PROYECTO="$RIPOR_PROYECTO" CONFIANI_PROCESO="$CONFIANI_PROCESO" \
   CONFIANI_SERVICIO="$CONFIANI_SERVICIO" CONFIANI_CC="$CONFIANI_CC" \
@@ -175,9 +213,16 @@ if [ "$SKIP_LOGIN" -eq 1 ]; then
 elif [ -f "$ROOT/skills/registro-horas/state.json" ]; then
   echo "✅ Sesión de Ripor ya existe. Si expira, ejecuta: skills login"
 else
-  echo "🔑 Configurando sesión de Ripor (Google OAuth)..."
-  echo "   Se abrirá Chrome. Completa el login y cierra la ventana al terminar."
-  ask _ENTER "   Presiona Enter para continuar... "
+  echo ""
+  echo "──────────────────────────────────────────────────────────────────"
+  echo "  PASO 3/3 — Login de RIPOR (Google OAuth)"
+  echo "──────────────────────────────────────────────────────────────────"
+  echo "  Voy a abrir Chrome. Inicia sesión con tu Google CORPORATIVO"
+  echo "  (la misma cuenta con la que entras normalmente a Ripor)."
+  echo "  Cuando veas https://ripor.co/u/horas cargado, puedes cerrar Chrome:"
+  echo "  yo guardo la sesión automáticamente."
+  echo ""
+  ask _ENTER "  Presiona Enter para abrir Chrome... "
   python skills/registro-horas/registrar_horas.py --login-manual
 fi
 

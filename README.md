@@ -13,6 +13,23 @@ Automatizaciones Playwright para tareas internas del equipo Linktic:
 - 📸 Capturas automáticas para diagnosticar fallos de selectores
 - 🎯 Workspace de VS Code preconfigurado
 
+## 🔑 Antes de instalar — qué cuentas necesitas
+
+Esta herramienta automatiza **dos servicios distintos**, cada uno con **sus propias credenciales**. Asegúrate de tenerlas a la mano antes de correr el instalador:
+
+| Servicio | URL | Cómo se loguea | Qué te pide el setup |
+|---|---|---|---|
+| **Ripor** (registro de horas) | https://ripor.co | Google corporativo (OAuth) | Te abre Chrome **una vez** para que hagas login en Google. No te pide password aquí. |
+| **Confiani** (helpdesk Odoo) | https://erp.confiani.com | Email + contraseña del helpdesk | Te pide email y password en la terminal y los guarda en `.env` (chmod 600). |
+
+> ⚠️ La contraseña de Confiani **NO es la misma** que la de Google. Si nunca has entrado a `https://erp.confiani.com/web/login`, pídele a tu líder que te active la cuenta antes de instalar.
+
+Además, el setup te preguntará por **3 valores que cambian por persona** (van a `config.local.toml`, que está gitignored):
+- Texto exacto de tu proyecto en Ripor (ej. `005 - PROYECTO POSITIVA SGDEA 2026 - 3T`).
+- Proceso, servicio y centro de costo en Confiani (ej. `Proceso de Ingeniería Cloud`, `Gestión - GCP`, `[0004008]`).
+
+Si no conoces alguno, déjalo en blanco y edita después `config.local.toml`.
+
 ## 📦 Instalación con un solo comando
 
 ### 🍎 macOS / 🐧 Linux
